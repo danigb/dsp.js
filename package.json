@@ -2,7 +2,12 @@
   "name": "dsp.js",
   "version": "1.0.0",
   "description": "Digital Signal Processing for Javascript",
-  "main": "dsp.js",
+  "main": "src/index.js",
+  "scripts": {
+    "dist": "rm dist/* && browserify src/index.js > dist/dsp.js && uglifyjs dist/dsp.js > dist/dsp.min.js",
+    "test": "mocha test/*.js",
+    "lint": "eslint src/*.js"
+  },
   "directories": {
     "example": "examples",
     "test": "test"
@@ -21,5 +26,13 @@
   "bugs": {
     "url": "https://github.com/corbanbrook/dsp.js/issues"
   },
-  "homepage": "https://github.com/corbanbrook/dsp.js#readme"
+  "homepage": "https://github.com/corbanbrook/dsp.js#readme",
+  "standard": {
+    "ignore": "**/*"
+  },
+  "devDependencies": {
+    "eslint": "^3.12.2",
+    "mocha": "^3",
+    "rollup": "^0.37.2"
+  }
 }
