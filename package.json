@@ -5,6 +5,7 @@
   "main": "src/index.js",
   "scripts": {
     "dist": "rm dist/* && browserify src/index.js > dist/dsp.js && uglifyjs dist/dsp.js > dist/dsp.min.js",
+    "docs": "jsdoc2md \"src/*.js\" > docs/API.md",
     "test": "mocha test/*.js",
     "lint": "eslint src/*.js"
   },
@@ -31,8 +32,9 @@
     "ignore": "**/*"
   },
   "devDependencies": {
+    "browserify": "^13.1.1",
     "eslint": "^3.12.2",
     "mocha": "^3",
-    "rollup": "^0.37.2"
+    "uglifyjs": "^2.4.10"
   }
 }

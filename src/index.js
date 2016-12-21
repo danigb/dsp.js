@@ -20,9 +20,7 @@ var DSPJS = {
 
 if (typeof module === "object" && module.exports) module.exports = DSPJS;
 if (typeof window !== "undefined") {
-  console.log("JODER", window)
   Object.keys(DSPJS).forEach(function (k) {
     window[k] = DSPJS[k];
-    console.log("EXPORT", k);
   });
 }

@@ -80,7 +80,7 @@ function GraphicalEq(sampleRate) {
     }
 
     if (!this.w) {
-      this.w = Float64Array(400);
+      this.w = new Float64Array(400);
       for (var i=0; i<this.w.length; i++) {
          this.w[i] = Math.PI/this.w.length * i;
       }
