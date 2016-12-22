@@ -1,5 +1,14 @@
 (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
-
+/**
+ * ADSR Envelope
+ *
+ * @param {Number} attack The attack length in seconds
+ * @param {Number} decay The decay length in seconds
+ * @param {Number} sustain The sustain level
+ * @param {Number} release The release length in seconds
+ * @param {Number} sampleRate The the sample rate
+ * @constructor
+ */
 function ADSR(attackLength, decayLength, sustainLevel, sustainLength, releaseLength, sampleRate) {
   this.sampleRate = sampleRate;
   // Length in seconds
@@ -29,18 +38,29 @@ function ADSR(attackLength, decayLength, sustainLevel, sustainLength, releaseLen
   this.samplesProcessed = 0;
 }
 
+/**
+ * Start the envelope
+ */
 ADSR.prototype.noteOn = function() {
   this.samplesProcessed = 0;
   this.sustainSamples = this.sustainLength * this.sampleRate;
   this.update();
 };
 
-// Send a note off when using a sustain of infinity to let the envelope enter the release phase
+/**
+ * Stop the envelope
+ *
+ * Send a note off when using a sustain of infinity to let the envelope enter
+ * the release phase
+ */
 ADSR.prototype.noteOff = function() {
   this.sustainSamples = this.samplesProcessed - this.decaySamples;
   this.update();
 };
 
+/**
+ * Process sample
+ */
 ADSR.prototype.processSample = function(sample) {
   var amplitude = 0;
 
@@ -57,6 +77,10 @@ ADSR.prototype.processSample = function(sample) {
   return sample * amplitude;
 };
 
+/**
+ * Get current value
+ * @return {Number} amplitude
+ */
 ADSR.prototype.value = function() {
   var amplitude = 0;
 
@@ -73,6 +97,10 @@ ADSR.prototype.value = function() {
   return amplitude;
 };
 
+/**
+ * Process a buffer
+ * @param {Array} buffer
+ */
 ADSR.prototype.process = function(buffer) {
   for ( var i = 0; i < buffer.length; i++ ) {
     buffer[i] *= this.value();
@@ -83,7 +111,10 @@ ADSR.prototype.process = function(buffer) {
   return buffer;
 };
 
-
+/**
+ * Test if the envelope is active
+ * @return {Boolean}
+ */
 ADSR.prototype.isActive = function() {
   if ( this.samplesProcessed > this.release || this.samplesProcessed === -1 ) {
     return false;
@@ -92,6 +123,9 @@ ADSR.prototype.isActive = function() {
   }
 };
 
+/**
+ * Disable the envelope
+ */
 ADSR.prototype.disable = function() {
   this.samplesProcessed = -1;
 };
@@ -100,907 +134,22 @@ module.exports = ADSR;
 
 },{}],2:[function(require,module,exports){
 /* global Float64Array */
-/**
- * MultiDelay effect by Almer Thie (http://code.almeros.com).
- * Copyright 2010 Almer Thie. All rights reserved.
- * Example: http://code.almeros.com/code-examples/delay-firefox-audio-api/
- *
- * This is a delay that feeds it's own delayed signal back into its circular
- * buffer. Also known as a CombFilter.
- *
- * Compatible with interleaved stereo (or more channel) buffers and
- * non-interleaved mono buffers.
- *
- * @param {Number} maxDelayInSamplesSize Maximum possible delay in samples (size of circular buffer)
- * @param {Number} delayInSamples Initial delay in samples
- * @param {Number} masterVolume Initial master volume. Float value: 0.0 (silence), 1.0 (normal), >1.0 (amplify)
- * @param {Number} delayVolume Initial feedback delay volume. Float value: 0.0 (silence), 1.0 (normal), >1.0 (amplify)
- *
- * @constructor
- */
-function MultiDelay(maxDelayInSamplesSize, delayInSamples, masterVolume, delayVolume) {
-  this.delayBufferSamples   = new Float64Array(maxDelayInSamplesSize); // The maximum size of delay
-  this.delayInputPointer     = delayInSamples;
-  this.delayOutputPointer   = 0;
-
-  this.delayInSamples   = delayInSamples;
-  this.masterVolume     = masterVolume;
-  this.delayVolume     = delayVolume;
-}
-
-/**
- * Change the delay time in samples.
- *
- * @param {Number} delayInSamples Delay in samples
- */
-MultiDelay.prototype.setDelayInSamples = function (delayInSamples) {
-  this.delayInSamples = delayInSamples;
-
-  this.delayInputPointer = this.delayOutputPointer + delayInSamples;
-
-  if (this.delayInputPointer >= this.delayBufferSamples.length-1) {
-    this.delayInputPointer = this.delayInputPointer - this.delayBufferSamples.length;
-  }
-};
-
-/**
- * Change the master volume.
- *
- * @param {Number} masterVolume Float value: 0.0 (silence), 1.0 (normal), >1.0 (amplify)
- */
-MultiDelay.prototype.setMasterVolume = function(masterVolume) {
-  this.masterVolume = masterVolume;
-};
-
-/**
- * Change the delay feedback volume.
- *
- * @param {Number} delayVolume Float value: 0.0 (silence), 1.0 (normal), >1.0 (amplify)
- */
-MultiDelay.prototype.setDelayVolume = function(delayVolume) {
-  this.delayVolume = delayVolume;
-};
-
-/**
- * Process a given interleaved or mono non-interleaved float value Array and adds the delayed audio.
- *
- * @param {Array} samples Array containing Float values or a Float64Array
- *
- * @returns A new Float64Array interleaved or mono non-interleaved as was fed to this function.
- */
-MultiDelay.prototype.process = function(samples) {
-  // NB. Make a copy to put in the output samples to return.
-  var outputSamples = new Float64Array(samples.length);
-
-  for (var i=0; i<samples.length; i++) {
-    // delayBufferSamples could contain initial NULL's, return silence in that case
-    var delaySample = (this.delayBufferSamples[this.delayOutputPointer] === null ? 0.0 : this.delayBufferSamples[this.delayOutputPointer]);
-
-    // Mix normal audio data with delayed audio
-    var sample = (delaySample * this.delayVolume) + samples[i];
-
-    // Add audio data with the delay in the delay buffer
-    this.delayBufferSamples[this.delayInputPointer] = sample;
-
-    // Return the audio with delay mix
-    outputSamples[i] = sample * this.masterVolume;
-
-    // Manage circulair delay buffer pointers
-    this.delayInputPointer++;
-    if (this.delayInputPointer >= this.delayBufferSamples.length-1) {
-      this.delayInputPointer = 0;
-    }
-
-    this.delayOutputPointer++;
-    if (this.delayOutputPointer >= this.delayBufferSamples.length-1) {
-      this.delayOutputPointer = 0;
-    }
-  }
-
-  return outputSamples;
-};
-
-module.exports = MultiDelay
-
-},{}],3:[function(require,module,exports){
-/* global Float64Array */
-
-/**
- * SingleDelay effect by Almer Thie (http://code.almeros.com).
- * Copyright 2010 Almer Thie. All rights reserved.
- * Example: See usage in Reverb class
- *
- * This is a delay that does NOT feeds it's own delayed signal back into its
- * circular buffer, neither does it return the original signal. Also known as
- * an AllPassFilter(?).
- *
- * Compatible with interleaved stereo (or more channel) buffers and
- * non-interleaved mono buffers.
- *
- * @param {Number} maxDelayInSamplesSize Maximum possible delay in samples (size of circular buffer)
- * @param {Number} delayInSamples Initial delay in samples
- * @param {Number} delayVolume Initial feedback delay volume. Float value: 0.0 (silence), 1.0 (normal), >1.0 (amplify)
- *
- * @constructor
- */
-
-function SingleDelay(maxDelayInSamplesSize, delayInSamples, delayVolume) {
-  this.delayBufferSamples = new Float64Array(maxDelayInSamplesSize); // The maximum size of delay
-  this.delayInputPointer  = delayInSamples;
-  this.delayOutputPointer = 0;
-
-  this.delayInSamples     = delayInSamples;
-  this.delayVolume        = delayVolume;
-}
-
-/**
- * Change the delay time in samples.
- *
- * @param {Number} delayInSamples Delay in samples
- */
-SingleDelay.prototype.setDelayInSamples = function(delayInSamples) {
-  this.delayInSamples = delayInSamples;
-  this.delayInputPointer = this.delayOutputPointer + delayInSamples;
-
-  if (this.delayInputPointer >= this.delayBufferSamples.length-1) {
-    this.delayInputPointer = this.delayInputPointer - this.delayBufferSamples.length;
-  }
-};
-
-/**
- * Change the return signal volume.
- *
- * @param {Number} delayVolume Float value: 0.0 (silence), 1.0 (normal), >1.0 (amplify)
- */
-SingleDelay.prototype.setDelayVolume = function(delayVolume) {
-  this.delayVolume = delayVolume;
-};
-
-/**
- * Process a given interleaved or mono non-interleaved float value Array and
- * returns the delayed audio.
- *
- * @param {Array} samples Array containing Float values or a Float64Array
- *
- * @returns A new Float64Array interleaved or mono non-interleaved as was fed to this function.
- */
-SingleDelay.prototype.process = function(samples) {
-  // NB. Make a copy to put in the output samples to return.
-  var outputSamples = new Float64Array(samples.length);
-
-  for (var i=0; i<samples.length; i++) {
-
-    // Add audio data with the delay in the delay buffer
-    this.delayBufferSamples[this.delayInputPointer] = samples[i];
-
-    // delayBufferSamples could contain initial NULL's, return silence in that case
-    var delaySample = this.delayBufferSamples[this.delayOutputPointer];
-
-    // Return the audio with delay mix
-    outputSamples[i] = delaySample * this.delayVolume;
-
-    // Manage circulair delay buffer pointers
-    this.delayInputPointer++;
-
-    if (this.delayInputPointer >= this.delayBufferSamples.length-1) {
-      this.delayInputPointer = 0;
-    }
-
-    this.delayOutputPointer++;
-
-    if (this.delayOutputPointer >= this.delayBufferSamples.length-1) {
-      this.delayOutputPointer = 0;
-    }
-  }
-
-  return outputSamples;
-};
-
-module.exports = SingleDelay;
-
-},{}],4:[function(require,module,exports){
-/* global Float64Array */
-var FourierTransform = require("./fourier");
-
-/**
- * DFT is a class for calculating the Discrete Fourier Transform of a signal.
- *
- * @param {Number} bufferSize The size of the sample buffer to be computed
- * @param {Number} sampleRate The sampleRate of the buffer (eg. 44100)
- *
- * @constructor
- */
-function DFT(bufferSize, sampleRate) {
-  FourierTransform.call(this, bufferSize, sampleRate);
-
-  var N = bufferSize/2 * bufferSize;
-  var TWO_PI = 2 * Math.PI;
-
-  this.sinTable = new Float64Array(N);
-  this.cosTable = new Float64Array(N);
-
-  for (var i = 0; i < N; i++) {
-    this.sinTable[i] = Math.sin(i * TWO_PI / bufferSize);
-    this.cosTable[i] = Math.cos(i * TWO_PI / bufferSize);
-  }
-}
-
-/**
- * Performs a forward transform on the sample buffer.
- * Converts a time domain signal to frequency domain spectra.
- *
- * @param {Array} buffer The sample buffer
- *
- * @returns The frequency spectrum array
- */
-DFT.prototype.forward = function(buffer) {
-  var real = this.real,
-    imag = this.imag,
-    rval,
-    ival;
-
-  for (var k = 0; k < this.bufferSize/2; k++) {
-    rval = 0.0;
-    ival = 0.0;
-
-    for (var n = 0; n < buffer.length; n++) {
-      rval += this.cosTable[k*n] * buffer[n];
-      ival += this.sinTable[k*n] * buffer[n];
-    }
-
-    real[k] = rval;
-    imag[k] = ival;
-  }
-
-  return this.calculateSpectrum();
-};
-
-module.exports = DFT;
-
-},{"./fourier":11}],5:[function(require,module,exports){
-/* global Float64Array */
-/*
- *  DSP.js - a comprehensive digital signal processing  library for javascript
- *
- *  Created by Corban Brook <corbanbrook@gmail.com> on 2010-01-01.
- *  Copyright 2010 Corban Brook. All rights reserved.
- *
- */
-
-////////////////////////////////////////////////////////////////////////////////
-//                                  CONSTANTS                                 //
-////////////////////////////////////////////////////////////////////////////////
-
-/**
- * DSP is an object which contains general purpose utility functions and constants
- */
-var DSP = {
-  // Channels
-  LEFT:           0,
-  RIGHT:          1,
-  MIX:            2,
-
-  // Waveforms
-  SINE:           1,
-  TRIANGLE:       2,
-  SAW:            3,
-  SQUARE:         4,
-
-  // Filters
-  LOWPASS:        0,
-  HIGHPASS:       1,
-  BANDPASS:       2,
-  NOTCH:          3,
-
-  // Window functions
-  BARTLETT:       1,
-  BARTLETTHANN:   2,
-  BLACKMAN:       3,
-  COSINE:         4,
-  GAUSS:          5,
-  HAMMING:        6,
-  HANN:           7,
-  LANCZOS:        8,
-  RECTANGULAR:    9,
-  TRIANGULAR:     10,
-
-  // Loop modes
-  OFF:            0,
-  FW:             1,
-  BW:             2,
-  FWBW:           3,
-
-  // Math
-  TWO_PI:         2*Math.PI
-};
-
-// Setup arrays for platforms which do not support byte arrays
-function setupTypedArray(name, fallback) {
-  // check if TypedArray exists
-  // typeof on Minefield and Chrome return function, typeof on Webkit returns object.
-  if (typeof this[name] !== "function" && typeof this[name] !== "object") {
-    // nope.. check if WebGLArray exists
-    if (typeof this[fallback] === "function" && typeof this[fallback] !== "object") {
-      this[name] = this[fallback];
-    } else {
-      // nope.. set as Native JS array
-      this[name] = function(obj) {
-        if (obj instanceof Array) {
-          return obj;
-        } else if (typeof obj === "number") {
-          return new Array(obj);
-        }
-      };
-    }
-  }
-}
-
-setupTypedArray("Float64Array", "WebGLFloatArray");
-setupTypedArray("Int32Array",   "WebGLIntArray");
-setupTypedArray("Uint16Array",  "WebGLUnsignedShortArray");
-setupTypedArray("Uint8Array",   "WebGLUnsignedByteArray");
-
-
-////////////////////////////////////////////////////////////////////////////////
-//                            DSP UTILITY FUNCTIONS                           //
-////////////////////////////////////////////////////////////////////////////////
-
-/**
- * Inverts the phase of a signal
- *
- * @param {Array} buffer A sample buffer
- *
- * @returns The inverted sample buffer
- */
-DSP.invert = function(buffer) {
-  for (var i = 0, len = buffer.length; i < len; i++) {
-    buffer[i] *= -1;
-  }
-
-  return buffer;
-};
-
-/**
- * Converts split-stereo (dual mono) sample buffers into a stereo interleaved sample buffer
- *
- * @param {Array} left  A sample buffer
- * @param {Array} right A sample buffer
- *
- * @returns The stereo interleaved buffer
- */
-DSP.interleave = function(left, right) {
-  if (left.length !== right.length) {
-    throw "Can not interleave. Channel lengths differ.";
-  }
-
-  var stereoInterleaved = new Float64Array(left.length * 2);
-
-  for (var i = 0, len = left.length; i < len; i++) {
-    stereoInterleaved[2*i]   = left[i];
-    stereoInterleaved[2*i+1] = right[i];
-  }
-
-  return stereoInterleaved;
-};
-
-/**
- * Converts a stereo-interleaved sample buffer into split-stereo (dual mono) sample buffers
- *
- * @param {Array} buffer A stereo-interleaved sample buffer
- *
- * @returns an Array containing left and right channels
- */
-DSP.deinterleave = (function() {
-  var left, right, mix, deinterleaveChannel = [];
-
-  deinterleaveChannel[DSP.MIX] = function(buffer) {
-    for (var i = 0, len = buffer.length/2; i < len; i++) {
-      mix[i] = (buffer[2*i] + buffer[2*i+1]) / 2;
-    }
-    return mix;
-  };
-
-  deinterleaveChannel[DSP.LEFT] = function(buffer) {
-    for (var i = 0, len = buffer.length/2; i < len; i++) {
-      left[i]  = buffer[2*i];
-    }
-    return left;
-  };
-
-  deinterleaveChannel[DSP.RIGHT] = function(buffer) {
-    for (var i = 0, len = buffer.length/2; i < len; i++) {
-      right[i]  = buffer[2*i+1];
-    }
-    return right;
-  };
-
-  return function(channel, buffer) {
-    left  = left  || new Float64Array(buffer.length/2);
-    right = right || new Float64Array(buffer.length/2);
-    mix   = mix   || new Float64Array(buffer.length/2);
-
-    if (buffer.length/2 !== left.length) {
-      left  = new Float64Array(buffer.length/2);
-      right = new Float64Array(buffer.length/2);
-      mix   = new Float64Array(buffer.length/2);
-    }
-
-    return deinterleaveChannel[channel](buffer);
-  };
-}());
-
-/**
- * Separates a channel from a stereo-interleaved sample buffer
- *
- * @param {Array}  buffer A stereo-interleaved sample buffer
- * @param {Number} channel A channel constant (LEFT, RIGHT, MIX)
- *
- * @returns an Array containing a signal mono sample buffer
- */
-DSP.getChannel = DSP.deinterleave;
-
-/**
- * Helper method (for Reverb) to mix two (interleaved) samplebuffers. It's possible
- * to negate the second buffer while mixing and to perform a volume correction
- * on the final signal.
- *
- * @param {Array} sampleBuffer1 Array containing Float values or a Float64Array
- * @param {Array} sampleBuffer2 Array containing Float values or a Float64Array
- * @param {Boolean} negate When true inverts/flips the audio signal
- * @param {Number} volumeCorrection When you add multiple sample buffers, use this to tame your signal ;)
- *
- * @returns A new Float64Array interleaved buffer.
- */
-DSP.mixSampleBuffers = function(sampleBuffer1, sampleBuffer2, negate, volumeCorrection){
-  var outputSamples = new Float64Array(sampleBuffer1);
-
-  for(var i = 0; i<sampleBuffer1.length; i++){
-    outputSamples[i] += (negate ? -sampleBuffer2[i] : sampleBuffer2[i]) / volumeCorrection;
-  }
-
-  return outputSamples;
-};
-
-// Biquad filter types
-DSP.LPF = 0;                // H(s) = 1 / (s^2 + s/Q + 1)
-DSP.HPF = 1;                // H(s) = s^2 / (s^2 + s/Q + 1)
-DSP.BPF_CONSTANT_SKIRT = 2; // H(s) = s / (s^2 + s/Q + 1)  (constant skirt gain, peak gain = Q)
-DSP.BPF_CONSTANT_PEAK = 3;  // H(s) = (s/Q) / (s^2 + s/Q + 1)      (constant 0 dB peak gain)
-DSP.NOTCH = 4;              // H(s) = (s^2 + 1) / (s^2 + s/Q + 1)
-DSP.APF = 5;                // H(s) = (s^2 - s/Q + 1) / (s^2 + s/Q + 1)
-DSP.PEAKING_EQ = 6;         // H(s) = (s^2 + s*(A/Q) + 1) / (s^2 + s/(A*Q) + 1)
-DSP.LOW_SHELF = 7;          // H(s) = A * (s^2 + (sqrt(A)/Q)*s + A)/(A*s^2 + (sqrt(A)/Q)*s + 1)
-DSP.HIGH_SHELF = 8;         // H(s) = A * (A*s^2 + (sqrt(A)/Q)*s + 1)/(s^2 + (sqrt(A)/Q)*s + A)
-
-// Biquad filter parameter types
-DSP.Q = 1;
-DSP.BW = 2; // SHARED with BACKWARDS LOOP MODE
-DSP.S = 3;
-
-// Find RMS of signal
-DSP.RMS = function(buffer) {
-  var total = 0;
-
-  for (var i = 0, n = buffer.length; i < n; i++) {
-    total += buffer[i] * buffer[i];
-  }
-
-  return Math.sqrt(total / n);
-};
-
-// Find Peak of signal
-DSP.Peak = function(buffer) {
-  var peak = 0;
-
-  for (var i = 0, n = buffer.length; i < n; i++) {
-    peak = (Math.abs(buffer[i]) > peak) ? Math.abs(buffer[i]) : peak;
-  }
-
-  return peak;
-};
-
-/*
- *  Magnitude to decibels
- *
- *  Created by Ricard Marxer <email@ricardmarxer.com> on 2010-05-23.
- *  Copyright 2010 Ricard Marxer. All rights reserved.
- *
- *  @buffer array of magnitudes to convert to decibels
- *
- *  @returns the array in decibels
- *
- */
-DSP.mag2db = function(buffer) {
-  var minDb = -120;
-  var minMag = Math.pow(10.0, minDb / 20.0);
-
-  var log = Math.log;
-  var max = Math.max;
-
-  var result = new Float64Array(buffer.length);
-  for (var i=0; i<buffer.length; i++) {
-    result[i] = 20.0*log(max(buffer[i], minMag));
-  }
-
-  return result;
-};
-
-/*
- *  Frequency response
- *
- *  Created by Ricard Marxer <email@ricardmarxer.com> on 2010-05-23.
- *  Copyright 2010 Ricard Marxer. All rights reserved.
- *
- *  Calculates the frequency response at the given points.
- *
- *  @b b coefficients of the filter
- *  @a a coefficients of the filter
- *  @w w points (normally between -PI and PI) where to calculate the frequency response
- *
- *  @returns the frequency response in magnitude
- *
- */
-DSP.freqz = function(b, a, w) {
-  var i, j;
-
-  if (!w) {
-    w = new Float64Array(200);
-    for (i=0;i<w.length; i++) {
-      w[i] = DSP.TWO_PI/w.length * i - Math.PI;
-    }
-  }
-
-  var result = new Float64Array(w.length);
-
-  var sqrt = Math.sqrt;
-  var cos = Math.cos;
-  var sin = Math.sin;
-
-  for (i=0; i<w.length; i++) {
-    var numerator = {real:0.0, imag:0.0};
-    for (j=0; j<b.length; j++) {
-      numerator.real += b[j] * cos(-j*w[i]);
-      numerator.imag += b[j] * sin(-j*w[i]);
-    }
-
-    var denominator = {real:0.0, imag:0.0};
-    for (j=0; j<a.length; j++) {
-      denominator.real += a[j] * cos(-j*w[i]);
-      denominator.imag += a[j] * sin(-j*w[i]);
-    }
-
-    result[i] =  sqrt(numerator.real*numerator.real + numerator.imag*numerator.imag) / sqrt(denominator.real*denominator.real + denominator.imag*denominator.imag);
-  }
-
-  return result;
-};
-
-module.exports = DSP;
-
-},{}],6:[function(require,module,exports){
-/* global Float64Array */
 var DSP = require("./dsp");
-var Biquad = require("./filter-biquad");
+var sinh = require("./sinh");
 
 /**
- *  Create a Graphical Equalizer
+ * Biquad filter
  *
- *  Implementation of a graphic equalizer with a configurable bands-per-octave
- *  and minimum and maximum frequencies
- *
- *  Created by Ricard Marxer <email@ricardmarxer.com> on 2010-05-23.
+ * Created by Ricard Marxer <email@ricardmarxer.com> on 2010-05-23.
  *  Copyright 2010 Ricard Marxer. All rights reserved.
  *
- * @param {SampleRate}
- * @example
- * var eq = new GraphicalEq(44100)
- */
-function GraphicalEq(sampleRate) {
-  this.FS = sampleRate;
-  this.minFreq = 40.0;
-  this.maxFreq = 16000.0;
-
-  this.bandsPerOctave = 1.0;
-
-  this.filters = [];
-  this.freqzs = [];
-
-  this.calculateFreqzs = true;
-
-  this.recalculateFilters = function() {
-    var bandCount = Math.round(Math.log(this.maxFreq/this.minFreq) * this.bandsPerOctave/ Math.LN2);
-
-    this.filters = [];
-    for (var i=0; i<bandCount; i++) {
-      var freq = this.minFreq*(Math.pow(2, i/this.bandsPerOctave));
-      var newFilter = new Biquad(DSP.PEAKING_EQ, this.FS);
-      newFilter.setDbGain(0);
-      newFilter.setBW(1/this.bandsPerOctave);
-      newFilter.setF0(freq);
-      this.filters[i] = newFilter;
-      this.recalculateFreqz(i);
-    }
-  };
-
-  this.setMinimumFrequency = function(freq) {
-    this.minFreq = freq;
-    this.recalculateFilters();
-  };
-
-  this.setMaximumFrequency = function(freq) {
-    this.maxFreq = freq;
-    this.recalculateFilters();
-  };
-
-  this.setBandsPerOctave = function(bands) {
-    this.bandsPerOctave = bands;
-    this.recalculateFilters();
-  };
-
-  this.setBandGain = function(bandIndex, gain) {
-    if (bandIndex < 0 || bandIndex > (this.filters.length-1)) {
-      throw "The band index of the graphical equalizer is out of bounds.";
-    }
-
-    if (!gain) {
-      throw "A gain must be passed.";
-    }
-
-    this.filters[bandIndex].setDbGain(gain);
-    this.recalculateFreqz(bandIndex);
-  };
-
-  this.recalculateFreqz = function(bandIndex) {
-    if (!this.calculateFreqzs) {
-      return;
-    }
-
-    if (bandIndex < 0 || bandIndex > (this.filters.length-1)) {
-      throw "The band index of the graphical equalizer is out of bounds. " + bandIndex + " is out of [" + 0 + ", " + this.filters.length-1 + "]";
-    }
-
-    if (!this.w) {
-      this.w = new Float64Array(400);
-      for (var i=0; i<this.w.length; i++) {
-         this.w[i] = Math.PI/this.w.length * i;
-      }
-    }
-
-    var b = [this.filters[bandIndex].b0, this.filters[bandIndex].b1, this.filters[bandIndex].b2];
-    var a = [this.filters[bandIndex].a0, this.filters[bandIndex].a1, this.filters[bandIndex].a2];
-
-    this.freqzs[bandIndex] = DSP.mag2db(DSP.freqz(b, a, this.w));
-  };
-
-  this.process = function(buffer) {
-    var output = buffer;
-
-    for (var i = 0; i < this.filters.length; i++) {
-      output = this.filters[i].process(output);
-    }
-
-    return output;
-  };
-
-  this.processStereo = function(buffer) {
-    var output = buffer;
-
-    for (var i = 0; i < this.filters.length; i++) {
-      output = this.filters[i].processStereo(output);
-    }
-
-    return output;
-  };
-}
-
-module.exports = GraphicalEq;
-
-},{"./dsp":5,"./filter-biquad":8}],7:[function(require,module,exports){
-/* global Float64Array Uint32Array */
-var FourierTransform = require("./fourier");
-
-/**
- * FFT is a class for calculating the Discrete Fourier Transform of a signal
- * with the Fast Fourier Transform algorithm.
+ * Implementation based on:
+ * http://www.musicdsp.org/files/Audio-EQ-Cookbook.txt
  *
- * @param {Number} bufferSize The size of the sample buffer to be computed. Must be power of 2
- * @param {Number} sampleRate The sampleRate of the buffer (eg. 44100)
- *
+ * @param {Number} type
+ * @param {Number} sampleRate
  * @constructor
  */
-function FFT(bufferSize, sampleRate) {
-  FourierTransform.call(this, bufferSize, sampleRate);
-
-  this.reverseTable = new Uint32Array(bufferSize);
-
-  var limit = 1;
-  var bit = bufferSize >> 1;
-
-  var i;
-
-  while (limit < bufferSize) {
-    for (i = 0; i < limit; i++) {
-      this.reverseTable[i + limit] = this.reverseTable[i] + bit;
-    }
-
-    limit = limit << 1;
-    bit = bit >> 1;
-  }
-
-  this.sinTable = new Float64Array(bufferSize);
-  this.cosTable = new Float64Array(bufferSize);
-
-  for (i = 0; i < bufferSize; i++) {
-    this.sinTable[i] = Math.sin(-Math.PI/i);
-    this.cosTable[i] = Math.cos(-Math.PI/i);
-  }
-}
-
-/**
- * Performs a forward transform on the sample buffer.
- * Converts a time domain signal to frequency domain spectra.
- *
- * @param {Array} buffer The sample buffer. Buffer Length must be power of 2
- *
- * @returns The frequency spectrum array
- */
-FFT.prototype.forward = function(buffer) {
-  // Locally scope variables for speed up
-  var bufferSize      = this.bufferSize,
-      cosTable        = this.cosTable,
-      sinTable        = this.sinTable,
-      reverseTable    = this.reverseTable,
-      real            = this.real,
-      imag            = this.imag,
-      spectrum        = this.spectrum;
-
-  var k = Math.floor(Math.log(bufferSize) / Math.LN2);
-
-  if (Math.pow(2, k) !== bufferSize) { throw "Invalid buffer size, must be a power of 2."; }
-  if (bufferSize !== buffer.length)  { throw "Supplied buffer is not the same size as defined FFT. FFT Size: " + bufferSize + " Buffer Size: " + buffer.length; }
-
-  var halfSize = 1,
-    phaseShiftStepReal,
-    phaseShiftStepImag,
-    currentPhaseShiftReal,
-    currentPhaseShiftImag,
-    off,
-    tr,
-    ti,
-    tmpReal,
-    i;
-
-  for (i = 0; i < bufferSize; i++) {
-    real[i] = buffer[reverseTable[i]];
-    imag[i] = 0;
-  }
-
-  while (halfSize < bufferSize) {
-    //phaseShiftStepReal = Math.cos(-Math.PI/halfSize);
-    //phaseShiftStepImag = Math.sin(-Math.PI/halfSize);
-    phaseShiftStepReal = cosTable[halfSize];
-    phaseShiftStepImag = sinTable[halfSize];
-
-    currentPhaseShiftReal = 1;
-    currentPhaseShiftImag = 0;
-
-    for (var fftStep = 0; fftStep < halfSize; fftStep++) {
-      i = fftStep;
-
-      while (i < bufferSize) {
-        off = i + halfSize;
-        tr = (currentPhaseShiftReal * real[off]) - (currentPhaseShiftImag * imag[off]);
-        ti = (currentPhaseShiftReal * imag[off]) + (currentPhaseShiftImag * real[off]);
-
-        real[off] = real[i] - tr;
-        imag[off] = imag[i] - ti;
-        real[i] += tr;
-        imag[i] += ti;
-
-        i += halfSize << 1;
-      }
-
-      tmpReal = currentPhaseShiftReal;
-      currentPhaseShiftReal = (tmpReal * phaseShiftStepReal) - (currentPhaseShiftImag * phaseShiftStepImag);
-      currentPhaseShiftImag = (tmpReal * phaseShiftStepImag) + (currentPhaseShiftImag * phaseShiftStepReal);
-    }
-
-    halfSize = halfSize << 1;
-  }
-
-  return this.calculateSpectrum();
-};
-
-FFT.prototype.inverse = function(real, imag) {
-  // Locally scope variables for speed up
-  var bufferSize      = this.bufferSize,
-      cosTable        = this.cosTable,
-      sinTable        = this.sinTable,
-      reverseTable    = this.reverseTable,
-      spectrum        = this.spectrum;
-
-      real = real || this.real;
-      imag = imag || this.imag;
-
-  var halfSize = 1,
-      phaseShiftStepReal,
-      phaseShiftStepImag,
-      currentPhaseShiftReal,
-      currentPhaseShiftImag,
-      off,
-      tr,
-      ti,
-      tmpReal,
-      i;
-
-  for (i = 0; i < bufferSize; i++) {
-    imag[i] *= -1;
-  }
-
-  var revReal = new Float64Array(bufferSize);
-  var revImag = new Float64Array(bufferSize);
-
-  for (i = 0; i < real.length; i++) {
-    revReal[i] = real[reverseTable[i]];
-    revImag[i] = imag[reverseTable[i]];
-  }
-
-  real = revReal;
-  imag = revImag;
-
-  while (halfSize < bufferSize) {
-    phaseShiftStepReal = cosTable[halfSize];
-    phaseShiftStepImag = sinTable[halfSize];
-    currentPhaseShiftReal = 1;
-    currentPhaseShiftImag = 0;
-
-    for (var fftStep = 0; fftStep < halfSize; fftStep++) {
-      i = fftStep;
-
-      while (i < bufferSize) {
-        off = i + halfSize;
-        tr = (currentPhaseShiftReal * real[off]) - (currentPhaseShiftImag * imag[off]);
-        ti = (currentPhaseShiftReal * imag[off]) + (currentPhaseShiftImag * real[off]);
-
-        real[off] = real[i] - tr;
-        imag[off] = imag[i] - ti;
-        real[i] += tr;
-        imag[i] += ti;
-
-        i += halfSize << 1;
-      }
-
-      tmpReal = currentPhaseShiftReal;
-      currentPhaseShiftReal = (tmpReal * phaseShiftStepReal) - (currentPhaseShiftImag * phaseShiftStepImag);
-      currentPhaseShiftImag = (tmpReal * phaseShiftStepImag) + (currentPhaseShiftImag * phaseShiftStepReal);
-    }
-
-    halfSize = halfSize << 1;
-  }
-
-  var buffer = new Float64Array(bufferSize); // this should be reused instead
-  for (i = 0; i < bufferSize; i++) {
-    buffer[i] = real[i] / bufferSize;
-  }
-
-  return buffer;
-};
-
-module.exports = FFT;
-
-},{"./fourier":11}],8:[function(require,module,exports){
-/* global Float64Array */
-var DSP = require("./dsp");
-
-/*
- *  Biquad filter
- *
- *  Created by Ricard Marxer <email@ricardmarxer.com> on 2010-05-23.
- *  Copyright 2010 Ricard Marxer. All rights reserved.
- *
- */
-// Implementation based on:
-// http://www.musicdsp.org/files/Audio-EQ-Cookbook.txt
 function Biquad(type, sampleRate) {
   this.Fs = sampleRate;
   this.type = type;  // type of the filter
@@ -1273,10 +422,768 @@ function Biquad(type, sampleRate) {
 
 module.exports = Biquad;
 
-},{"./dsp":5}],9:[function(require,module,exports){
+},{"./dsp":4,"./sinh":17}],3:[function(require,module,exports){
+/* global Float64Array */
+var FourierTransform = require("./fourier");
+
+/**
+ * DFT is a class for calculating the Discrete Fourier Transform of a signal.
+ *
+ * @param {Number} bufferSize The size of the sample buffer to be computed
+ * @param {Number} sampleRate The sampleRate of the buffer (eg. 44100)
+ *
+ * @constructor
+ */
+function DFT(bufferSize, sampleRate) {
+  FourierTransform.call(this, bufferSize, sampleRate);
+
+  var N = bufferSize/2 * bufferSize;
+  var TWO_PI = 2 * Math.PI;
+
+  this.sinTable = new Float64Array(N);
+  this.cosTable = new Float64Array(N);
+
+  for (var i = 0; i < N; i++) {
+    this.sinTable[i] = Math.sin(i * TWO_PI / bufferSize);
+    this.cosTable[i] = Math.cos(i * TWO_PI / bufferSize);
+  }
+}
+
+/**
+ * Performs a forward transform on the sample buffer.
+ * Converts a time domain signal to frequency domain spectra.
+ *
+ * @param {Array} buffer The sample buffer
+ *
+ * @returns The frequency spectrum array
+ */
+DFT.prototype.forward = function(buffer) {
+  var real = this.real,
+    imag = this.imag,
+    rval,
+    ival;
+
+  for (var k = 0; k < this.bufferSize/2; k++) {
+    rval = 0.0;
+    ival = 0.0;
+
+    for (var n = 0; n < buffer.length; n++) {
+      rval += this.cosTable[k*n] * buffer[n];
+      ival += this.sinTable[k*n] * buffer[n];
+    }
+
+    real[k] = rval;
+    imag[k] = ival;
+  }
+
+  return this.calculateSpectrum();
+};
+
+module.exports = DFT;
+
+},{"./fourier":6}],4:[function(require,module,exports){
+/* global Float64Array */
+
+////////////////////////////////////////////////////////////////////////////////
+//                                  CONSTANTS                                 //
+////////////////////////////////////////////////////////////////////////////////
+
+/**
+ * DSP is an object which contains general purpose utility functions and constants
+ */
+var DSP = {
+  // Channels
+  LEFT:           0,
+  RIGHT:          1,
+  MIX:            2,
+
+  // Waveforms
+  SINE:           1,
+  TRIANGLE:       2,
+  SAW:            3,
+  SQUARE:         4,
+
+  // Filters
+  LOWPASS:        0,
+  HIGHPASS:       1,
+  BANDPASS:       2,
+  NOTCH:          3,
+
+  // Window functions
+  BARTLETT:       1,
+  BARTLETTHANN:   2,
+  BLACKMAN:       3,
+  COSINE:         4,
+  GAUSS:          5,
+  HAMMING:        6,
+  HANN:           7,
+  LANCZOS:        8,
+  RECTANGULAR:    9,
+  TRIANGULAR:     10,
+
+  // Loop modes
+  OFF:            0,
+  FW:             1,
+  BW:             2,
+  FWBW:           3,
+
+  // Math
+  TWO_PI:         2*Math.PI
+};
+
+// Setup arrays for platforms which do not support byte arrays
+function setupTypedArray(name, fallback) {
+  // check if TypedArray exists
+  // typeof on Minefield and Chrome return function, typeof on Webkit returns object.
+  if (typeof this[name] !== "function" && typeof this[name] !== "object") {
+    // nope.. check if WebGLArray exists
+    if (typeof this[fallback] === "function" && typeof this[fallback] !== "object") {
+      this[name] = this[fallback];
+    } else {
+      // nope.. set as Native JS array
+      this[name] = function(obj) {
+        if (obj instanceof Array) {
+          return obj;
+        } else if (typeof obj === "number") {
+          return new Array(obj);
+        }
+      };
+    }
+  }
+}
+
+setupTypedArray("Float64Array", "WebGLFloatArray");
+setupTypedArray("Int32Array",   "WebGLIntArray");
+setupTypedArray("Uint16Array",  "WebGLUnsignedShortArray");
+setupTypedArray("Uint8Array",   "WebGLUnsignedByteArray");
+
+
+////////////////////////////////////////////////////////////////////////////////
+//                            DSP UTILITY FUNCTIONS                           //
+////////////////////////////////////////////////////////////////////////////////
+
+/**
+ * Inverts the phase of a signal
+ *
+ * @param {Array} buffer A sample buffer
+ *
+ * @returns The inverted sample buffer
+ */
+DSP.invert = function(buffer) {
+  for (var i = 0, len = buffer.length; i < len; i++) {
+    buffer[i] *= -1;
+  }
+
+  return buffer;
+};
+
+/**
+ * Converts split-stereo (dual mono) sample buffers into a stereo interleaved sample buffer
+ *
+ * @param {Array} left  A sample buffer
+ * @param {Array} right A sample buffer
+ *
+ * @returns The stereo interleaved buffer
+ */
+DSP.interleave = function(left, right) {
+  if (left.length !== right.length) {
+    throw "Can not interleave. Channel lengths differ.";
+  }
+
+  var stereoInterleaved = new Float64Array(left.length * 2);
+
+  for (var i = 0, len = left.length; i < len; i++) {
+    stereoInterleaved[2*i]   = left[i];
+    stereoInterleaved[2*i+1] = right[i];
+  }
+
+  return stereoInterleaved;
+};
+
+/**
+ * Converts a stereo-interleaved sample buffer into split-stereo (dual mono) sample buffers
+ *
+ * @param {Array} buffer A stereo-interleaved sample buffer
+ *
+ * @returns an Array containing left and right channels
+ */
+DSP.deinterleave = (function() {
+  var left, right, mix, deinterleaveChannel = [];
+
+  deinterleaveChannel[DSP.MIX] = function(buffer) {
+    for (var i = 0, len = buffer.length/2; i < len; i++) {
+      mix[i] = (buffer[2*i] + buffer[2*i+1]) / 2;
+    }
+    return mix;
+  };
+
+  deinterleaveChannel[DSP.LEFT] = function(buffer) {
+    for (var i = 0, len = buffer.length/2; i < len; i++) {
+      left[i]  = buffer[2*i];
+    }
+    return left;
+  };
+
+  deinterleaveChannel[DSP.RIGHT] = function(buffer) {
+    for (var i = 0, len = buffer.length/2; i < len; i++) {
+      right[i]  = buffer[2*i+1];
+    }
+    return right;
+  };
+
+  return function(channel, buffer) {
+    left  = left  || new Float64Array(buffer.length/2);
+    right = right || new Float64Array(buffer.length/2);
+    mix   = mix   || new Float64Array(buffer.length/2);
+
+    if (buffer.length/2 !== left.length) {
+      left  = new Float64Array(buffer.length/2);
+      right = new Float64Array(buffer.length/2);
+      mix   = new Float64Array(buffer.length/2);
+    }
+
+    return deinterleaveChannel[channel](buffer);
+  };
+}());
+
+/**
+ * Separates a channel from a stereo-interleaved sample buffer
+ *
+ * @param {Array}  buffer A stereo-interleaved sample buffer
+ * @param {Number} channel A channel constant (LEFT, RIGHT, MIX)
+ *
+ * @returns an Array containing a signal mono sample buffer
+ */
+DSP.getChannel = DSP.deinterleave;
+
+/**
+ * Helper method (for Reverb) to mix two (interleaved) samplebuffers. It's possible
+ * to negate the second buffer while mixing and to perform a volume correction
+ * on the final signal.
+ *
+ * @param {Array} sampleBuffer1 Array containing Float values or a Float64Array
+ * @param {Array} sampleBuffer2 Array containing Float values or a Float64Array
+ * @param {Boolean} negate When true inverts/flips the audio signal
+ * @param {Number} volumeCorrection When you add multiple sample buffers, use this to tame your signal ;)
+ *
+ * @returns A new Float64Array interleaved buffer.
+ */
+DSP.mixSampleBuffers = function(sampleBuffer1, sampleBuffer2, negate, volumeCorrection){
+  var outputSamples = new Float64Array(sampleBuffer1);
+
+  for(var i = 0; i<sampleBuffer1.length; i++){
+    outputSamples[i] += (negate ? -sampleBuffer2[i] : sampleBuffer2[i]) / volumeCorrection;
+  }
+
+  return outputSamples;
+};
+
+// Biquad filter types
+DSP.LPF = 0;                // H(s) = 1 / (s^2 + s/Q + 1)
+DSP.HPF = 1;                // H(s) = s^2 / (s^2 + s/Q + 1)
+DSP.BPF_CONSTANT_SKIRT = 2; // H(s) = s / (s^2 + s/Q + 1)  (constant skirt gain, peak gain = Q)
+DSP.BPF_CONSTANT_PEAK = 3;  // H(s) = (s/Q) / (s^2 + s/Q + 1)      (constant 0 dB peak gain)
+DSP.NOTCH = 4;              // H(s) = (s^2 + 1) / (s^2 + s/Q + 1)
+DSP.APF = 5;                // H(s) = (s^2 - s/Q + 1) / (s^2 + s/Q + 1)
+DSP.PEAKING_EQ = 6;         // H(s) = (s^2 + s*(A/Q) + 1) / (s^2 + s/(A*Q) + 1)
+DSP.LOW_SHELF = 7;          // H(s) = A * (s^2 + (sqrt(A)/Q)*s + A)/(A*s^2 + (sqrt(A)/Q)*s + 1)
+DSP.HIGH_SHELF = 8;         // H(s) = A * (A*s^2 + (sqrt(A)/Q)*s + 1)/(s^2 + (sqrt(A)/Q)*s + A)
+
+// Biquad filter parameter types
+DSP.Q = 1;
+DSP.BW = 2; // SHARED with BACKWARDS LOOP MODE
+DSP.S = 3;
+
+/**
+ * Find RMS of signal
+ * @param {Array} buffer
+ */
+DSP.RMS = function(buffer) {
+  var total = 0;
+
+  for (var i = 0, n = buffer.length; i < n; i++) {
+    total += buffer[i] * buffer[i];
+  }
+
+  return Math.sqrt(total / n);
+};
+
+/**
+ * Find Peak of signal
+ * @param {Array} buffer
+ */
+DSP.Peak = function(buffer) {
+  var peak = 0;
+
+  for (var i = 0, n = buffer.length; i < n; i++) {
+    peak = (Math.abs(buffer[i]) > peak) ? Math.abs(buffer[i]) : peak;
+  }
+
+  return peak;
+};
+
+/**
+ * Magnitude to decibels
+ *
+ * Created by Ricard Marxer <email@ricardmarxer.com> on 2010-05-23.
+ * Copyright 2010 Ricard Marxer. All rights reserved.
+ *
+ * @param {Array} @buffer The array of magnitudes to convert to decibels
+ * @returns the array in decibels
+ *
+ */
+DSP.mag2db = function(buffer) {
+  var minDb = -120;
+  var minMag = Math.pow(10.0, minDb / 20.0);
+
+  var log = Math.log;
+  var max = Math.max;
+
+  var result = new Float64Array(buffer.length);
+  for (var i=0; i<buffer.length; i++) {
+    result[i] = 20.0*log(max(buffer[i], minMag));
+  }
+
+  return result;
+};
+
+/**
+ *  Frequency response
+ *
+ *  Created by Ricard Marxer <email@ricardmarxer.com> on 2010-05-23.
+ *  Copyright 2010 Ricard Marxer. All rights reserved.
+ *
+ *  Calculates the frequency response at the given points.
+ *
+ *  @param {Number} b The coefficients of the filter
+ *  @param {Number} a The coefficients of the filter
+ *  @param {Number} w The points (normally between -PI and PI) where to calculate the frequency response
+ *
+ *  @returns the frequency response in magnitude
+ */
+DSP.freqz = function(b, a, w) {
+  var i, j;
+
+  if (!w) {
+    w = new Float64Array(200);
+    for (i=0;i<w.length; i++) {
+      w[i] = DSP.TWO_PI/w.length * i - Math.PI;
+    }
+  }
+
+  var result = new Float64Array(w.length);
+
+  var sqrt = Math.sqrt;
+  var cos = Math.cos;
+  var sin = Math.sin;
+
+  for (i=0; i<w.length; i++) {
+    var numerator = {real:0.0, imag:0.0};
+    for (j=0; j<b.length; j++) {
+      numerator.real += b[j] * cos(-j*w[i]);
+      numerator.imag += b[j] * sin(-j*w[i]);
+    }
+
+    var denominator = {real:0.0, imag:0.0};
+    for (j=0; j<a.length; j++) {
+      denominator.real += a[j] * cos(-j*w[i]);
+      denominator.imag += a[j] * sin(-j*w[i]);
+    }
+
+    result[i] =  sqrt(numerator.real*numerator.real + numerator.imag*numerator.imag) / sqrt(denominator.real*denominator.real + denominator.imag*denominator.imag);
+  }
+
+  return result;
+};
+
+module.exports = DSP;
+
+},{}],5:[function(require,module,exports){
+/* global Float64Array Uint32Array */
+var FourierTransform = require("./fourier");
+
+/**
+ * FFT is a class for calculating the Discrete Fourier Transform of a signal
+ * with the Fast Fourier Transform algorithm.
+ *
+ * @param {Number} bufferSize The size of the sample buffer to be computed. Must be power of 2
+ * @param {Number} sampleRate The sampleRate of the buffer (eg. 44100)
+ *
+ * @constructor
+ */
+function FFT(bufferSize, sampleRate) {
+  FourierTransform.call(this, bufferSize, sampleRate);
+
+  this.reverseTable = new Uint32Array(bufferSize);
+
+  var limit = 1;
+  var bit = bufferSize >> 1;
+
+  var i;
+
+  while (limit < bufferSize) {
+    for (i = 0; i < limit; i++) {
+      this.reverseTable[i + limit] = this.reverseTable[i] + bit;
+    }
+
+    limit = limit << 1;
+    bit = bit >> 1;
+  }
+
+  this.sinTable = new Float64Array(bufferSize);
+  this.cosTable = new Float64Array(bufferSize);
+
+  for (i = 0; i < bufferSize; i++) {
+    this.sinTable[i] = Math.sin(-Math.PI/i);
+    this.cosTable[i] = Math.cos(-Math.PI/i);
+  }
+}
+
+/**
+ * Performs a forward transform on the sample buffer.
+ * Converts a time domain signal to frequency domain spectra.
+ *
+ * @param {Array} buffer The sample buffer. Buffer Length must be power of 2
+ *
+ * @returns The frequency spectrum array
+ */
+FFT.prototype.forward = function(buffer) {
+  // Locally scope variables for speed up
+  var bufferSize      = this.bufferSize,
+      cosTable        = this.cosTable,
+      sinTable        = this.sinTable,
+      reverseTable    = this.reverseTable,
+      real            = this.real,
+      imag            = this.imag;
+
+  var k = Math.floor(Math.log(bufferSize) / Math.LN2);
+
+  if (Math.pow(2, k) !== bufferSize) { throw "Invalid buffer size, must be a power of 2."; }
+  if (bufferSize !== buffer.length)  { throw "Supplied buffer is not the same size as defined FFT. FFT Size: " + bufferSize + " Buffer Size: " + buffer.length; }
+
+  var halfSize = 1,
+    phaseShiftStepReal,
+    phaseShiftStepImag,
+    currentPhaseShiftReal,
+    currentPhaseShiftImag,
+    off,
+    tr,
+    ti,
+    tmpReal,
+    i;
+
+  for (i = 0; i < bufferSize; i++) {
+    real[i] = buffer[reverseTable[i]];
+    imag[i] = 0;
+  }
+
+  while (halfSize < bufferSize) {
+    //phaseShiftStepReal = Math.cos(-Math.PI/halfSize);
+    //phaseShiftStepImag = Math.sin(-Math.PI/halfSize);
+    phaseShiftStepReal = cosTable[halfSize];
+    phaseShiftStepImag = sinTable[halfSize];
+
+    currentPhaseShiftReal = 1;
+    currentPhaseShiftImag = 0;
+
+    for (var fftStep = 0; fftStep < halfSize; fftStep++) {
+      i = fftStep;
+
+      while (i < bufferSize) {
+        off = i + halfSize;
+        tr = (currentPhaseShiftReal * real[off]) - (currentPhaseShiftImag * imag[off]);
+        ti = (currentPhaseShiftReal * imag[off]) + (currentPhaseShiftImag * real[off]);
+
+        real[off] = real[i] - tr;
+        imag[off] = imag[i] - ti;
+        real[i] += tr;
+        imag[i] += ti;
+
+        i += halfSize << 1;
+      }
+
+      tmpReal = currentPhaseShiftReal;
+      currentPhaseShiftReal = (tmpReal * phaseShiftStepReal) - (currentPhaseShiftImag * phaseShiftStepImag);
+      currentPhaseShiftImag = (tmpReal * phaseShiftStepImag) + (currentPhaseShiftImag * phaseShiftStepReal);
+    }
+
+    halfSize = halfSize << 1;
+  }
+
+  return this.calculateSpectrum();
+};
+
+/**
+ * Performs a inverse FFT transformation
+ * Converts a frequency domain spectra to a time domain signal
+ *
+ * @param {Array} real
+ * @param {Array} imag
+ *
+ * @returns The time domain signal
+ */
+FFT.prototype.inverse = function(real, imag) {
+  // Locally scope variables for speed up
+  var bufferSize      = this.bufferSize,
+      cosTable        = this.cosTable,
+      sinTable        = this.sinTable,
+      reverseTable    = this.reverseTable;
+
+      real = real || this.real;
+      imag = imag || this.imag;
+
+  var halfSize = 1,
+      phaseShiftStepReal,
+      phaseShiftStepImag,
+      currentPhaseShiftReal,
+      currentPhaseShiftImag,
+      off,
+      tr,
+      ti,
+      tmpReal,
+      i;
+
+  for (i = 0; i < bufferSize; i++) {
+    imag[i] *= -1;
+  }
+
+  var revReal = new Float64Array(bufferSize);
+  var revImag = new Float64Array(bufferSize);
+
+  for (i = 0; i < real.length; i++) {
+    revReal[i] = real[reverseTable[i]];
+    revImag[i] = imag[reverseTable[i]];
+  }
+
+  real = revReal;
+  imag = revImag;
+
+  while (halfSize < bufferSize) {
+    phaseShiftStepReal = cosTable[halfSize];
+    phaseShiftStepImag = sinTable[halfSize];
+    currentPhaseShiftReal = 1;
+    currentPhaseShiftImag = 0;
+
+    for (var fftStep = 0; fftStep < halfSize; fftStep++) {
+      i = fftStep;
+
+      while (i < bufferSize) {
+        off = i + halfSize;
+        tr = (currentPhaseShiftReal * real[off]) - (currentPhaseShiftImag * imag[off]);
+        ti = (currentPhaseShiftReal * imag[off]) + (currentPhaseShiftImag * real[off]);
+
+        real[off] = real[i] - tr;
+        imag[off] = imag[i] - ti;
+        real[i] += tr;
+        imag[i] += ti;
+
+        i += halfSize << 1;
+      }
+
+      tmpReal = currentPhaseShiftReal;
+      currentPhaseShiftReal = (tmpReal * phaseShiftStepReal) - (currentPhaseShiftImag * phaseShiftStepImag);
+      currentPhaseShiftImag = (tmpReal * phaseShiftStepImag) + (currentPhaseShiftImag * phaseShiftStepReal);
+    }
+
+    halfSize = halfSize << 1;
+  }
+
+  var buffer = new Float64Array(bufferSize); // this should be reused instead
+  for (i = 0; i < bufferSize; i++) {
+    buffer[i] = real[i] / bufferSize;
+  }
+
+  return buffer;
+};
+
+module.exports = FFT;
+
+},{"./fourier":6}],6:[function(require,module,exports){
+/* global Float64Array */
+
+/**
+ * A Mixin for every fourier module
+ * Fourier Transform Module used by DFT, FFT, RFFT
+ * @private
+ */
+module.exports = function FourierTransform(bufferSize, sampleRate) {
+  this.bufferSize = bufferSize;
+  this.sampleRate = sampleRate;
+  this.bandwidth  = 2 / bufferSize * sampleRate / 2;
+
+  this.spectrum   = new Float64Array(bufferSize/2);
+  this.real       = new Float64Array(bufferSize);
+  this.imag       = new Float64Array(bufferSize);
+
+  this.peakBand   = 0;
+  this.peak       = 0;
+
+  /**
+   * Calculates the *middle* frequency of an FFT band.
+   *
+   * @param {Number} index The index of the FFT band.
+   *
+   * @returns The middle frequency in Hz.
+   */
+  this.getBandFrequency = function(index) {
+    return this.bandwidth * index + this.bandwidth / 2;
+  };
+
+  /**
+   * Calculate the spectrum (amplitude magnitudes)
+   */
+  this.calculateSpectrum = function() {
+    var spectrum  = this.spectrum,
+      real      = this.real,
+      imag      = this.imag,
+      bSi       = 2 / this.bufferSize,
+      sqrt      = Math.sqrt,
+      rval,
+      ival,
+      mag;
+
+    for (var i = 0, N = bufferSize/2; i < N; i++) {
+      rval = real[i];
+      ival = imag[i];
+      mag = bSi * sqrt(rval * rval + ival * ival);
+
+      if (mag > this.peak) {
+        this.peakBand = i;
+        this.peak = mag;
+      }
+
+      spectrum[i] = mag;
+    }
+  };
+};
+
+},{}],7:[function(require,module,exports){
+/* global Float64Array */
+var DSP = require("./dsp");
+var Biquad = require("./biquad");
+
+/**
+ *  Create a Graphical Equalizer
+ *
+ *  Implementation of a graphic equalizer with a configurable bands-per-octave
+ *  and minimum and maximum frequencies
+ *
+ *  Created by Ricard Marxer <email@ricardmarxer.com> on 2010-05-23.
+ *  Copyright 2010 Ricard Marxer. All rights reserved.
+ *
+ * @constructor
+ * @param {SampleRate}
+ * @example
+ * var eq = new GraphicalEq(44100)
+ */
+function GraphicalEq(sampleRate) {
+  this.FS = sampleRate;
+  this.minFreq = 40.0;
+  this.maxFreq = 16000.0;
+
+  this.bandsPerOctave = 1.0;
+
+  this.filters = [];
+  this.freqzs = [];
+
+  this.calculateFreqzs = true;
+
+  this.recalculateFilters = function() {
+    var bandCount = Math.round(Math.log(this.maxFreq/this.minFreq) * this.bandsPerOctave/ Math.LN2);
+
+    this.filters = [];
+    for (var i=0; i<bandCount; i++) {
+      var freq = this.minFreq*(Math.pow(2, i/this.bandsPerOctave));
+      var newFilter = new Biquad(DSP.PEAKING_EQ, this.FS);
+      newFilter.setDbGain(0);
+      newFilter.setBW(1/this.bandsPerOctave);
+      newFilter.setF0(freq);
+      this.filters[i] = newFilter;
+      this.recalculateFreqz(i);
+    }
+  };
+
+  this.setMinimumFrequency = function(freq) {
+    this.minFreq = freq;
+    this.recalculateFilters();
+  };
+
+  this.setMaximumFrequency = function(freq) {
+    this.maxFreq = freq;
+    this.recalculateFilters();
+  };
+
+  this.setBandsPerOctave = function(bands) {
+    this.bandsPerOctave = bands;
+    this.recalculateFilters();
+  };
+
+  this.setBandGain = function(bandIndex, gain) {
+    if (bandIndex < 0 || bandIndex > (this.filters.length-1)) {
+      throw "The band index of the graphical equalizer is out of bounds.";
+    }
+
+    if (!gain) {
+      throw "A gain must be passed.";
+    }
+
+    this.filters[bandIndex].setDbGain(gain);
+    this.recalculateFreqz(bandIndex);
+  };
+
+  this.recalculateFreqz = function(bandIndex) {
+    if (!this.calculateFreqzs) {
+      return;
+    }
+
+    if (bandIndex < 0 || bandIndex > (this.filters.length-1)) {
+      throw "The band index of the graphical equalizer is out of bounds. " + bandIndex + " is out of [" + 0 + ", " + this.filters.length-1 + "]";
+    }
+
+    if (!this.w) {
+      this.w = new Float64Array(400);
+      for (var i=0; i<this.w.length; i++) {
+         this.w[i] = Math.PI/this.w.length * i;
+      }
+    }
+
+    var b = [this.filters[bandIndex].b0, this.filters[bandIndex].b1, this.filters[bandIndex].b2];
+    var a = [this.filters[bandIndex].a0, this.filters[bandIndex].a1, this.filters[bandIndex].a2];
+
+    this.freqzs[bandIndex] = DSP.mag2db(DSP.freqz(b, a, this.w));
+  };
+
+  this.process = function(buffer) {
+    var output = buffer;
+
+    for (var i = 0; i < this.filters.length; i++) {
+      output = this.filters[i].process(output);
+    }
+
+    return output;
+  };
+
+  this.processStereo = function(buffer) {
+    var output = buffer;
+
+    for (var i = 0; i < this.filters.length; i++) {
+      output = this.filters[i].processStereo(output);
+    }
+
+    return output;
+  };
+}
+
+module.exports = GraphicalEq;
+
+},{"./biquad":2,"./dsp":4}],8:[function(require,module,exports){
 var DSP = require("./dsp");
 var ADSR = require("./adsr");
 
+/**
+ * IIRFilter
+ * @constructor
+ */
 function IIRFilter(type, cutoff, resonance, sampleRate) {
   this.sampleRate = sampleRate;
 
@@ -1300,15 +1207,27 @@ IIRFilter.prototype.__defineGetter__("resonance",
   }
 );
 
+/**
+ * Set filter parameters
+ * @param {Number} cutoff
+ * @param {Number} resonance
+ */
 IIRFilter.prototype.set = function(cutoff, resonance) {
   this.func.calcCoeff(cutoff, resonance);
 };
 
+/**
+ * Process a buffer
+ * @param {Array} buffer
+ */
 IIRFilter.prototype.process = function(buffer) {
   this.func.process(buffer);
 };
 
-// Add an envelope to the filter
+/**
+ * Add an envelope to the filter
+ * @param {ADSR} envelope
+ */
 IIRFilter.prototype.addEnvelope = function(envelope) {
   if ( envelope instanceof ADSR ) {
     this.func.addEnvelope(envelope);
@@ -1317,6 +1236,10 @@ IIRFilter.prototype.addEnvelope = function(envelope) {
   }
 };
 
+/**
+ * LP12 filter
+ * @constructor
+ */
 IIRFilter.LP12 = function(cutoff, resonance, sampleRate) {
   this.sampleRate = sampleRate;
   this.vibraPos   = 0;
@@ -1365,16 +1288,29 @@ IIRFilter.LP12 = function(cutoff, resonance, sampleRate) {
   };
 };
 
+/**
+ * Add an envelope to the filter
+ * @param {ADSR} envelope
+ */
 IIRFilter.LP12.prototype.addEnvelope = function(envelope) {
   this.envelope = envelope;
 };
 
 module.exports = IIRFilter;
 
-},{"./adsr":1,"./dsp":5}],10:[function(require,module,exports){
+},{"./adsr":1,"./dsp":4}],9:[function(require,module,exports){
 /* global Float64Array */
 var ADSR = require("./adsr");
 
+/**
+ * IIRFilter2
+ *
+ * @constructor
+ * @param {Number} type
+ * @param {Number} cutoff
+ * @param {Number} resonance
+ * @param {Number} sampleRate
+ */
 function IIRFilter2(type, cutoff, resonance, sampleRate) {
   this.type = type;
   this.cutoff = cutoff;
@@ -1395,6 +1331,10 @@ function IIRFilter2(type, cutoff, resonance, sampleRate) {
   this.calcCoeff(cutoff, resonance);
 }
 
+/**
+ * Process a buffer
+ * @param {Array} buffer
+ */
 IIRFilter2.prototype.process = function(buffer) {
   var input, output;
   var f = this.f;
@@ -1425,6 +1365,10 @@ IIRFilter2.prototype.process = function(buffer) {
   }
 };
 
+/**
+ * Add an envelope to the filter
+ * @param {ADSR} envelope
+ */
 IIRFilter2.prototype.addEnvelope = function(envelope) {
   if ( envelope instanceof ADSR ) {
     this.envelope = envelope;
@@ -1433,66 +1377,27 @@ IIRFilter2.prototype.addEnvelope = function(envelope) {
   }
 };
 
+/**
+ * Set filter parameters
+ * @param {Number} cutoff
+ * @param {Number} resonance
+ */
 IIRFilter2.prototype.set = function(cutoff, resonance) {
   this.calcCoeff(cutoff, resonance);
 };
 
 module.exports = IIRFilter2;
 
-},{"./adsr":1}],11:[function(require,module,exports){
-/* global Float64Array */
+},{"./adsr":1}],10:[function(require,module,exports){
+"use strict";
 
-// Fourier Transform Module used by DFT, FFT, RFFT
-module.exports = function FourierTransform(bufferSize, sampleRate) {
-  this.bufferSize = bufferSize;
-  this.sampleRate = sampleRate;
-  this.bandwidth  = 2 / bufferSize * sampleRate / 2;
-
-  this.spectrum   = new Float64Array(bufferSize/2);
-  this.real       = new Float64Array(bufferSize);
-  this.imag       = new Float64Array(bufferSize);
-
-  this.peakBand   = 0;
-  this.peak       = 0;
-
-  /**
-   * Calculates the *middle* frequency of an FFT band.
-   *
-   * @param {Number} index The index of the FFT band.
-   *
-   * @returns The middle frequency in Hz.
-   */
-  this.getBandFrequency = function(index) {
-    return this.bandwidth * index + this.bandwidth / 2;
-  };
-
-  this.calculateSpectrum = function() {
-    var spectrum  = this.spectrum,
-      real      = this.real,
-      imag      = this.imag,
-      bSi       = 2 / this.bufferSize,
-      sqrt      = Math.sqrt,
-      rval,
-      ival,
-      mag;
-
-    for (var i = 0, N = bufferSize/2; i < N; i++) {
-      rval = real[i];
-      ival = imag[i];
-      mag = bSi * sqrt(rval * rval + ival * ival);
-
-      if (mag > this.peak) {
-        this.peakBand = i;
-        this.peak = mag;
-      }
-
-      spectrum[i] = mag;
-    }
-  };
-};
-
-},{}],12:[function(require,module,exports){
-
+/*
+ *  DSP.js - a comprehensive digital signal processing  library for javascript
+ *
+ *  Created by Corban Brook <corbanbrook@gmail.com> on 2010-01-01.
+ *  Copyright 2010 Corban Brook. All rights reserved.
+ *
+ */
 var DSPJS = {
   DSP: require("./dsp"),
   DFT: require("./dft"),
@@ -1501,14 +1406,14 @@ var DSPJS = {
   Sampler: require("./sampler"),
   Oscillator: require("./oscillator"),
   ADSR: require("./adsr"),
-  IIRFilter: require("./filter-iir"),
-  IIRFilter2: require("./filter-iir2"),
+  IIRFilter: require("./iir-filter"),
+  IIRFilter2: require("./iir-filter2"),
   WindowFunction: require("./window-function"),
   sinh: require("./sinh"),
-  Biquad: require("./filter-biquad"),
-  GraphicalEq: require("./eq-graphical"),
-  MultiDelay: require("./delay-multi"),
-  SingleDelay: require("./delay-single"),
+  Biquad: require("./biquad"),
+  GraphicalEq: require("./graphical-eq"),
+  MultiDelay: require("./multi-delay"),
+  SingleDelay: require("./single-delay"),
   Reverb: require("./reverb")
 };
 
@@ -1519,7 +1424,111 @@ if (typeof window !== "undefined") {
   });
 }
 
-},{"./adsr":1,"./delay-multi":2,"./delay-single":3,"./dft":4,"./dsp":5,"./eq-graphical":6,"./fft":7,"./filter-biquad":8,"./filter-iir":9,"./filter-iir2":10,"./oscillator":13,"./reverb":14,"./rfft":15,"./sampler":16,"./sinh":17,"./window-function":18}],13:[function(require,module,exports){
+},{"./adsr":1,"./biquad":2,"./dft":3,"./dsp":4,"./fft":5,"./graphical-eq":7,"./iir-filter":8,"./iir-filter2":9,"./multi-delay":11,"./oscillator":12,"./reverb":13,"./rfft":14,"./sampler":15,"./single-delay":16,"./sinh":17,"./window-function":18}],11:[function(require,module,exports){
+/* global Float64Array */
+/**
+ * MultiDelay effect by Almer Thie (http://code.almeros.com).
+ * Copyright 2010 Almer Thie. All rights reserved.
+ * Example: http://code.almeros.com/code-examples/delay-firefox-audio-api/
+ *
+ * This is a delay that feeds it's own delayed signal back into its circular
+ * buffer. Also known as a CombFilter.
+ *
+ * Compatible with interleaved stereo (or more channel) buffers and
+ * non-interleaved mono buffers.
+ *
+ * @param {Number} maxDelayInSamplesSize Maximum possible delay in samples (size of circular buffer)
+ * @param {Number} delayInSamples Initial delay in samples
+ * @param {Number} masterVolume Initial master volume. Float value: 0.0 (silence), 1.0 (normal), >1.0 (amplify)
+ * @param {Number} delayVolume Initial feedback delay volume. Float value: 0.0 (silence), 1.0 (normal), >1.0 (amplify)
+ *
+ * @constructor
+ */
+function MultiDelay(maxDelayInSamplesSize, delayInSamples, masterVolume, delayVolume) {
+  this.delayBufferSamples   = new Float64Array(maxDelayInSamplesSize); // The maximum size of delay
+  this.delayInputPointer     = delayInSamples;
+  this.delayOutputPointer   = 0;
+
+  this.delayInSamples   = delayInSamples;
+  this.masterVolume     = masterVolume;
+  this.delayVolume     = delayVolume;
+}
+
+/**
+ * Change the delay time in samples.
+ *
+ * @param {Number} delayInSamples Delay in samples
+ */
+MultiDelay.prototype.setDelayInSamples = function (delayInSamples) {
+  this.delayInSamples = delayInSamples;
+
+  this.delayInputPointer = this.delayOutputPointer + delayInSamples;
+
+  if (this.delayInputPointer >= this.delayBufferSamples.length-1) {
+    this.delayInputPointer = this.delayInputPointer - this.delayBufferSamples.length;
+  }
+};
+
+/**
+ * Change the master volume.
+ *
+ * @param {Number} masterVolume Float value: 0.0 (silence), 1.0 (normal), >1.0 (amplify)
+ */
+MultiDelay.prototype.setMasterVolume = function(masterVolume) {
+  this.masterVolume = masterVolume;
+};
+
+/**
+ * Change the delay feedback volume.
+ *
+ * @param {Number} delayVolume Float value: 0.0 (silence), 1.0 (normal), >1.0 (amplify)
+ */
+MultiDelay.prototype.setDelayVolume = function(delayVolume) {
+  this.delayVolume = delayVolume;
+};
+
+/**
+ * Process a given interleaved or mono non-interleaved float value Array and adds the delayed audio.
+ *
+ * @param {Array} samples Array containing Float values or a Float64Array
+ *
+ * @returns A new Float64Array interleaved or mono non-interleaved as was fed to this function.
+ */
+MultiDelay.prototype.process = function(samples) {
+  // NB. Make a copy to put in the output samples to return.
+  var outputSamples = new Float64Array(samples.length);
+
+  for (var i=0; i<samples.length; i++) {
+    // delayBufferSamples could contain initial NULL's, return silence in that case
+    var delaySample = (this.delayBufferSamples[this.delayOutputPointer] === null ? 0.0 : this.delayBufferSamples[this.delayOutputPointer]);
+
+    // Mix normal audio data with delayed audio
+    var sample = (delaySample * this.delayVolume) + samples[i];
+
+    // Add audio data with the delay in the delay buffer
+    this.delayBufferSamples[this.delayInputPointer] = sample;
+
+    // Return the audio with delay mix
+    outputSamples[i] = sample * this.masterVolume;
+
+    // Manage circulair delay buffer pointers
+    this.delayInputPointer++;
+    if (this.delayInputPointer >= this.delayBufferSamples.length-1) {
+      this.delayInputPointer = 0;
+    }
+
+    this.delayOutputPointer++;
+    if (this.delayOutputPointer >= this.delayBufferSamples.length-1) {
+      this.delayOutputPointer = 0;
+    }
+  }
+
+  return outputSamples;
+};
+
+module.exports = MultiDelay;
+
+},{}],12:[function(require,module,exports){
 /* global Float64Array */
 var DSP = require("./dsp");
 
@@ -1532,7 +1541,7 @@ var DSP = require("./dsp");
  * @param {Number} bufferSize Size of the sample buffer to generate
  * @param {Number} sampleRate The sample rate of the signal
  *
- * @contructor
+ * @constructor
  */
 function Oscillator(type, frequency, amplitude, bufferSize, sampleRate) {
   this.frequency  = frequency;
@@ -1612,7 +1621,11 @@ Oscillator.prototype.setFreq = function(frequency) {
   this.cyclesPerSample = frequency / this.sampleRate;
 };
 
-// Add an oscillator
+/**
+ * Add an oscillator
+ * @param {Oscillator} oscillator The oscillator to be added to
+ * @return {Array} the current oscillator signal
+ */
 Oscillator.prototype.add = function(oscillator) {
   for ( var i = 0; i < this.bufferSize; i++ ) {
     //this.signal[i] += oscillator.valueAt(i);
@@ -1622,7 +1635,10 @@ Oscillator.prototype.add = function(oscillator) {
   return this.signal;
 };
 
-// Add a signal to the current generated osc signal
+/**
+ * Add a signal to the current generated osc signal
+ * @param {Array} signal
+ */
 Oscillator.prototype.addSignal = function(signal) {
   for ( var i = 0; i < signal.length; i++ ) {
     if ( i >= this.bufferSize ) {
@@ -1642,19 +1658,33 @@ Oscillator.prototype.addSignal = function(signal) {
   return this.signal;
 };
 
-// Add an envelope to the oscillator
+/**
+ * Add an envelope to the oscillator
+ * @param {ADSR} envelope
+ */
 Oscillator.prototype.addEnvelope = function(envelope) {
   this.envelope = envelope;
 };
 
+/**
+ * Apply the oscillator envelope to its signal
+ */
 Oscillator.prototype.applyEnvelope = function() {
   this.envelope.process(this.signal);
 };
 
+/**
+ * Get value
+ * @param {Number} offset
+ */
 Oscillator.prototype.valueAt = function(offset) {
   return this.waveTable[offset % this.waveTableLength];
 };
 
+/**
+ * Generate the oscillator signal
+ * @return {Array} the signal
+ */
 Oscillator.prototype.generate = function() {
   var frameOffset = this.frameCount * this.bufferSize;
   var step = this.waveTableLength * this.frequency / this.sampleRate;
@@ -1693,14 +1723,14 @@ Oscillator.Pulse = function() {
   // stub
 };
 
-module.exports = Oscillator
+module.exports = Oscillator;
 
-},{"./dsp":5}],14:[function(require,module,exports){
+},{"./dsp":4}],13:[function(require,module,exports){
 /* global Float64Array */
 var DSP = require("./dsp");
-var IIRFilter2 = require("./filter-iir2");
-var SingleDelay = require("./delay-single");
-var MultiDelay = require("./delay-multi");
+var IIRFilter2 = require("./iir-filter2");
+var SingleDelay = require("./single-delay");
+var MultiDelay = require("./multi-delay");
 
 /**
  * Reverb effect by Almer Thie (http://code.almeros.com).
@@ -1871,7 +1901,7 @@ Reverb.prototype.process = function (interleavedSamples){
 
 module.exports = Reverb;
 
-},{"./delay-multi":2,"./delay-single":3,"./dsp":5,"./filter-iir2":10}],15:[function(require,module,exports){
+},{"./dsp":4,"./iir-filter2":9,"./multi-delay":11,"./single-delay":16}],14:[function(require,module,exports){
 /* global Float64Array Uint32Array */
 var FourierTransform = require("./fourier");
 
@@ -1971,6 +2001,15 @@ function RFFT(bufferSize, sampleRate) {
   this.generateReverseTable();
 }
 
+
+/**
+ * Performs a forward transform on the sample buffer.
+ * Converts a time domain signal to frequency domain spectra.
+ *
+ * @param {Array} buffer The sample buffer. Buffer Length must be power of 2
+ *
+ * @returns The frequency spectrum array
+ */
 
 // Ordering of output:
 //
@@ -2176,10 +2215,23 @@ RFFT.prototype.forward = function(buffer) {
 
 module.exports = RFFT;
 
-},{"./fourier":11}],16:[function(require,module,exports){
+},{"./fourier":6}],15:[function(require,module,exports){
 /* global Float64Array */
 var DSP = require("./dsp");
 
+/**
+ * Sampler
+ *
+ * @constructor
+ * @param {} file
+ * @param {Number} bufferSize
+ * @param {Number} sampleRate
+ * @param {Number} playStart
+ * @param {Number} playEnd
+ * @param {Number} loopStart
+ * @param {Number} loopEnd
+ * @param {Number} loopMode
+ */
 function Sampler(file, bufferSize, sampleRate, playStart, playEnd, loopStart, loopEnd, loopMode) {
   this.file = file;
   this.bufferSize = bufferSize;
@@ -2298,12 +2350,108 @@ Sampler.prototype.reset = function() {
 
 module.exports = Sampler;
 
-},{"./dsp":5}],17:[function(require,module,exports){
+},{"./dsp":4}],16:[function(require,module,exports){
+/* global Float64Array */
+
 /**
- * Returns the hyperbolic sine of the number, defined as (exp(number) - exp(-number))/2
- * version: 1004.2314
- * discuss at: http://phpjs.org/functions/sinh
- * original by: Onno Marsman
+ * SingleDelay effect by Almer Thie (http://code.almeros.com).
+ * Copyright 2010 Almer Thie. All rights reserved.
+ * Example: See usage in Reverb class
+ *
+ * This is a delay that does NOT feeds it's own delayed signal back into its
+ * circular buffer, neither does it return the original signal. Also known as
+ * an AllPassFilter(?).
+ *
+ * Compatible with interleaved stereo (or more channel) buffers and
+ * non-interleaved mono buffers.
+ *
+ * @param {Number} maxDelayInSamplesSize Maximum possible delay in samples (size of circular buffer)
+ * @param {Number} delayInSamples Initial delay in samples
+ * @param {Number} delayVolume Initial feedback delay volume. Float value: 0.0 (silence), 1.0 (normal), >1.0 (amplify)
+ *
+ * @constructor
+ */
+function SingleDelay(maxDelayInSamplesSize, delayInSamples, delayVolume) {
+  this.delayBufferSamples = new Float64Array(maxDelayInSamplesSize); // The maximum size of delay
+  this.delayInputPointer  = delayInSamples;
+  this.delayOutputPointer = 0;
+
+  this.delayInSamples     = delayInSamples;
+  this.delayVolume        = delayVolume;
+}
+
+/**
+ * Change the delay time in samples.
+ *
+ * @param {Number} delayInSamples Delay in samples
+ */
+SingleDelay.prototype.setDelayInSamples = function(delayInSamples) {
+  this.delayInSamples = delayInSamples;
+  this.delayInputPointer = this.delayOutputPointer + delayInSamples;
+
+  if (this.delayInputPointer >= this.delayBufferSamples.length-1) {
+    this.delayInputPointer = this.delayInputPointer - this.delayBufferSamples.length;
+  }
+};
+
+/**
+ * Change the return signal volume.
+ *
+ * @param {Number} delayVolume Float value: 0.0 (silence), 1.0 (normal), >1.0 (amplify)
+ */
+SingleDelay.prototype.setDelayVolume = function(delayVolume) {
+  this.delayVolume = delayVolume;
+};
+
+/**
+ * Process a given interleaved or mono non-interleaved float value Array and
+ * returns the delayed audio.
+ *
+ * @param {Array} samples Array containing Float values or a Float64Array
+ *
+ * @returns A new Float64Array interleaved or mono non-interleaved as was fed to this function.
+ */
+SingleDelay.prototype.process = function(samples) {
+  // NB. Make a copy to put in the output samples to return.
+  var outputSamples = new Float64Array(samples.length);
+
+  for (var i=0; i<samples.length; i++) {
+
+    // Add audio data with the delay in the delay buffer
+    this.delayBufferSamples[this.delayInputPointer] = samples[i];
+
+    // delayBufferSamples could contain initial NULL's, return silence in that case
+    var delaySample = this.delayBufferSamples[this.delayOutputPointer];
+
+    // Return the audio with delay mix
+    outputSamples[i] = delaySample * this.delayVolume;
+
+    // Manage circulair delay buffer pointers
+    this.delayInputPointer++;
+
+    if (this.delayInputPointer >= this.delayBufferSamples.length-1) {
+      this.delayInputPointer = 0;
+    }
+
+    this.delayOutputPointer++;
+
+    if (this.delayOutputPointer >= this.delayBufferSamples.length-1) {
+      this.delayOutputPointer = 0;
+    }
+  }
+
+  return outputSamples;
+};
+
+module.exports = SingleDelay;
+
+},{}],17:[function(require,module,exports){
+/**
+ * Returns the hyperbolic sine of the number
+ *
+ * @meta version: 1004.2314
+ * @meta discuss at: http://phpjs.org/functions/sinh
+ * @meta original by: Onno Marsman
  *
  * @param {Number} num
  * @example
@@ -2318,6 +2466,13 @@ module.exports = sinh;
 },{}],18:[function(require,module,exports){
 var DSP = require("./dsp");
 
+/**
+ * WindowFunction
+ *
+ * @constructor
+ * @param {Number} type
+ * @param {Number} alpha
+ */
 function WindowFunction(type, alpha) {
   this.alpha = alpha;
 
@@ -2366,6 +2521,10 @@ function WindowFunction(type, alpha) {
   }
 }
 
+/**
+ * Process a buffer
+ * @param {Array} buffer
+ */
 WindowFunction.prototype.process = function(buffer) {
   var length = buffer.length;
   for ( var i = 0; i < length; i++ ) {
@@ -2421,4 +2580,4 @@ WindowFunction.Triangular = function(length, index) {
 
 module.exports = WindowFunction;
 
-},{"./dsp":5}]},{},[12]);
+},{"./dsp":4}]},{},[10]);

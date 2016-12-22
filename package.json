@@ -5,11 +5,12 @@
   "main": "lib/index.js",
   "scripts": {
     "prepublish": "npm run dist",
-    "predist": "npm run test && npm run lint",
+    "predist": "npm run test && npm run lint && npm run docs",
     "dist": "rm dist/* && browserify lib/index.js > dist/dsp.js && uglifyjs dist/dsp.js > dist/dsp.min.js",
     "docs": "jsdoc2md \"lib/*.js\" > docs/API.md",
     "test": "mocha test/*.js",
-    "lint": "eslint lib/*.js"
+    "lint": "eslint lib/*.js",
+    "bench": "node bench/index.js"
   },
   "directories": {
     "example": "examples",
@@ -36,6 +37,7 @@
   "devDependencies": {
     "browserify": "^13.1.1",
     "eslint": "^3.12.2",
+    "jsdoc-to-markdown": "^2.0.1",
     "mocha": "^3",
     "uglifyjs": "^2.4.10"
   }

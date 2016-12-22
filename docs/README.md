@@ -1,5 +1,4 @@
-DSP.js
-======
+## DSP.js [![npm](https://img.shields.io/npm/v/dsp.js.svg?style=flat-square)](https://www.npmjs.com/package/dsp.js)
 
 DSP.js is a comprehensive digital signal processing library for javascript.
 It includes many functions for signal analysis and generation, including
@@ -35,6 +34,14 @@ Or grab the [dsp.js](https://github.com/corbanbrook/dsp.js/blob/master/dist/dsp.
 ## Usage
 
 [Read the API documentation](https://github.com/corbanbrook/dsp.js/blob/master/docs/API.md)
+
+## Tests and scripts
+
+To setup you local machine to work with the code, first you have to clone this repository and install dependencies (`node` and `npm` are assumed to be installed): `npm install`
+
+- Run the tests: `npm test`
+- Generate API reference and distribution files: `npm run dist`
+- Run benchmarks: `npm run bench`
 
 
 ## License
