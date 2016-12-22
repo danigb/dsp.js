@@ -9,13 +9,24 @@ transforms, Delays, Reverb.
 
 ## Install
 
+__Node__
+
 Via npm: `npm install --save dsp.js` and require the modules:
 
 ```js
 const { DSP, WindowFunction, Oscillator } = require('dsp.js')
 ```
 
-Or grab the [browser ready minified file]() and include in your html:
+You can require individual modules:
+
+```js
+const DSP = require('dsp.js/lib/dsp')
+const WindowFunction = require('dsp.js/lib/window-function')
+```
+
+__Browser__
+
+Or grab the [dsp.js](https://github.com/corbanbrook/dsp.js/blob/master/dist/dsp.min.js) and include it in your html:
 
 ```html
 <script src="dsp.min.js"></script>
@@ -23,7 +34,7 @@ Or grab the [browser ready minified file]() and include in your html:
 
 ## Usage
 
-[Read the API documentation]()
+[Read the API documentation](https://github.com/corbanbrook/dsp.js/blob/master/docs/API.md)
 
 
 ## License

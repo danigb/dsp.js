@@ -2,12 +2,14 @@
   "name": "dsp.js",
   "version": "1.0.0",
   "description": "Digital Signal Processing for Javascript",
-  "main": "src/index.js",
+  "main": "lib/index.js",
   "scripts": {
-    "dist": "rm dist/* && browserify src/index.js > dist/dsp.js && uglifyjs dist/dsp.js > dist/dsp.min.js",
-    "docs": "jsdoc2md \"src/*.js\" > docs/API.md",
+    "prepublish": "npm run dist",
+    "predist": "npm run test && npm run lint",
+    "dist": "rm dist/* && browserify lib/index.js > dist/dsp.js && uglifyjs dist/dsp.js > dist/dsp.min.js",
+    "docs": "jsdoc2md \"lib/*.js\" > docs/API.md",
     "test": "mocha test/*.js",
-    "lint": "eslint src/*.js"
+    "lint": "eslint lib/*.js"
   },
   "directories": {
     "example": "examples",
